@@ -26,6 +26,10 @@ class FakeState:
     shelves: dict[str, dict] = field(default_factory=dict)
     # book path -> shelf idString (absent or None == unshelved at the root)
     placement: dict[str, str | None] = field(default_factory=dict)
+    # paths present on disk that the library index refuses to ingest (.lit/.djvu)
+    unindexed: set[str] = field(default_factory=set)
+    # real devices answer "success" but append -1.. to a duplicate shelf name
+    suffix_duplicate_shelves: bool = False
     notes: int = 0
     requests: list[tuple[str, str]] = field(default_factory=list)
 
@@ -194,13 +198,16 @@ class _Handler(BaseHTTPRequestHandler):
             uid = args.get("libraryUniqueId")
             # a book is in the library once it exists on disk; placement only
             # records which shelf it was grouped into
-            known = set(self.state.files) | set(self.state.placement)
+            known = (set(self.state.files) | set(self.state.placement)) - set(
+                self.state.unindexed
+            )
             books = sorted(p for p in known if self.state.placement.get(p) == uid)
             self._send({
                 "bookCount": len(books), "libraryCount": len(self.state.shelves),
                 "visibleBookList": [
                     {"metadata": {"location": p, "idString": p,
-                                  "title": p.rsplit("/", 1)[-1], "size": self.state.files[p]}}
+                                  "title": p.rsplit("/", 1)[-1],
+                                  "size": self.state.files.get(p, 0)}}
                     for p in books
                 ],
             })
@@ -244,9 +251,25 @@ class _Handler(BaseHTTPRequestHandler):
                                 "message": "exist same name bookshelf"}, 417)
                     return
             sid = f"shelf-{len(self.state.shelves) + 1}"
+            # real devices may silently disambiguate instead of refusing
+            if self.state.suffix_duplicate_shelves:
+                siblings = [s["name"] for s in self.state.shelves.values()
+                            if s["parent"] == parent]
+                stem = name
+                while f"{stem}" in siblings:
+                    stem = f"{stem}-1"
+                name = stem
             self.state.shelves[sid] = {"name": name, "parent": parent}
             self._send({"code": 0, "successful": True,
                         "data": {"idString": sid, "name": name}})
+        elif path == "/api/library/rename":
+            body = self._body()
+            sid = body.get("idString")
+            if sid in self.state.shelves:
+                self.state.shelves[sid]["name"] = body.get("name", "")
+                self._send({"code": 0, "successful": True})
+            else:
+                self._send({"code": -1, "successful": False, "message": "no shelf"}, 404)
         elif path == "/api/library/move":
             body = self._body()
             dest = (body.get("library") or {}).get("idString")

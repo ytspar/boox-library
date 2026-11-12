@@ -80,6 +80,7 @@ class ShelfSummary:
     shelves_needed: int = 0
     shelves_missing: int = 0
     shelves_created: int = 0
+    shelves_renamed: int = 0  # apply: actually renamed; dry run: would rename
     books: int = 0
     already_right: int = 0
     to_move: int = 0
@@ -93,6 +94,7 @@ class ShelfSummary:
             "shelves_needed": self.shelves_needed,
             "shelves_missing": self.shelves_missing,
             "shelves_created": self.shelves_created,
+            "shelves_renamed": self.shelves_renamed,
             "books": self.books,
             "already_right": self.already_right,
             "to_move": self.to_move,
@@ -132,6 +134,7 @@ def sync_shelves(device, plan, config, *, apply: bool = False, layout: str | Non
     summary.missing_shelves = sorted(missing)[:20]
 
     if not apply:
+        summary.shelves_renamed = len(device.shelf_renames())
         place = current_placement(device)
         for path, books in book_map.items():
             sid = ids.get(_fold(path))
@@ -141,6 +144,15 @@ def sync_shelves(device, plan, config, *, apply: bool = False, layout: str | Non
                 else:
                     summary.to_move += 1
         return summary
+
+    # the device appends "-1-1" to duplicate shelf names instead of failing,
+    # so put the names back the way they should read
+    for shelf_id, _raw, clean in device.shelf_renames():
+        try:
+            device.rename_shelf(shelf_id, clean)
+            summary.shelves_renamed += 1
+        except Exception as exc:  # noqa: BLE001 - cosmetic, never abort a run
+            log.warning("could not rename shelf %s -> %s: %s", shelf_id, clean, exc)
 
     for path in missing:
         try:

@@ -25,6 +25,7 @@ import urllib.parse
 from dataclasses import dataclass, field
 from typing import Any, Iterable, Iterator, Sequence
 
+import re
 import requests
 
 log = logging.getLogger(__name__)
@@ -42,6 +43,15 @@ class BooxError(RuntimeError):
 
 class WriteBlocked(BooxError):
     """Raised when a mutating call is attempted on a read-only client."""
+
+
+_SHELF_SUFFIX = re.compile(r"(?:-\d+)+$")
+
+
+def clean_shelf_name(name: str) -> str:
+    """Strip the "-1-1" suffixes the device appends to duplicate shelf names."""
+    cleaned = _SHELF_SUFFIX.sub("", name).strip()
+    return cleaned or name
 
 
 class AlreadyExists(BooxError):
@@ -329,7 +339,9 @@ class Device:
     def shelves(self) -> dict[tuple[str, ...], str]:
         """Flatten the shelf tree to ``{path_tuple: idString}``.
 
-        Keys are casefolded because the device compares names that way.
+        Keys are casefolded because the device compares names that way, and
+        use the ``clean_shelf_name`` form so a shelf the device renamed to
+        "Unsorted-1-1" still answers to "Unsorted".
         """
         out: dict[tuple[str, ...], str] = {}
 
@@ -339,12 +351,33 @@ class Device:
                 name = lib.get("name")
                 if not name:
                     continue
-                path = prefix + (name,)
+                path = prefix + (clean_shelf_name(name),)
                 out[tuple(p.casefold() for p in path)] = lib.get("idString", "")
                 walk(node.get("children") or [], path)
 
         walk(self.shelf_tree(), ())
         return out
+
+    def shelf_renames(self) -> list[tuple[str, str, str]]:
+        """``(idString, current name, clean name)`` for shelves that need fixing."""
+        out: list[tuple[str, str, str]] = []
+        for node in self.shelf_tree():
+            lib = node.get("library") or {}
+            name = lib.get("name") or ""
+            clean = clean_shelf_name(name)
+            if name and clean != name and lib.get("idString"):
+                out.append((lib["idString"], name, clean))
+        return out
+
+    def rename_shelf(self, shelf_id: str, name: str) -> None:
+        """Rename a shelf in place (books keep their placement)."""
+        self._require_write("rename-shelf")
+        self._json(
+            "POST",
+            "/api/library/rename",
+            json={"idString": shelf_id, "file": shelf_id, "name": name},
+        )
+        self.log.record("rename-shelf", id=shelf_id, name=name)
 
     def shelf_books(self, shelf_id: str | None, *, page: int = 500) -> list[dict[str, Any]]:
         """Books directly in a shelf (``None`` = the unshelved root)."""
@@ -398,6 +431,14 @@ class Device:
             self.log.record(
                 "create-shelf", parent=path[:depth], name=path[depth], id=parent_id
             )
+            # the device answers "success" but appends "-1" when the name is
+            # already taken, so trust the tree, not the reply
+            for sid, current, clean in self.shelf_renames():
+                if sid == parent_id and clean == path[depth]:
+                    try:
+                        self.rename_shelf(sid, clean)
+                    except BooxError as exc:  # cosmetic; keep going
+                        self.log.record("rename-shelf-failed", id=sid, error=str(exc))
             existing = self.shelves()
         if parent_id is None:
             raise BooxError(f"could not resolve shelf {path!r}")

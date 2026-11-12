@@ -113,6 +113,7 @@ conversion. Add `overrides:` entries to correct any individual book, using
 | `sync` | only with `--apply` | upload the library |
 | `wipe` | only with `--apply --confirm-wipe` | delete books from the device |
 | `verify` | no | compare the device against the plan |
+| `doctor` | only with `--fix` | check the reader can actually *see* every file |
 
 Useful flags: `--limit N` (first N books), `--replace` (overwrite existing),
 `--include-artifacts`, `--host`, `--config`, `-v`.
@@ -205,9 +206,37 @@ sync is:
 bin/booxlib sync --apply --prune && bin/booxlib shelves --apply
 ```
 
+One gotcha: when a shelf name is already taken the device does not fail - it
+quietly creates `Unsorted-1-1` instead. `shelves --apply` renames those back,
+and `doctor` reports them, so a mis-named shelf is visible rather than
+permanent.
+
 Shelves are **never deleted automatically**. The device's delete semantics are
 not fully understood (a delete can remove an empty sibling shelf), and a stray
 empty shelf is harmless, so removal stays a manual, opt-in action.
+
+## Doctor
+
+A BOOX keeps two views of the same library, and they disagree more often than
+you would hope: the filesystem (what was uploaded) and the library index (what
+the Library tab shows). `verify` only knows about the filesystem, so:
+
+```bash
+bin/booxlib doctor          # read-only report
+bin/booxlib doctor --fix    # also group misplaced books into shelves
+```
+
+It flags two failure modes that are otherwise silent:
+
+* **invisible files** - on the device but absent from the index. A format the
+  index refuses uploads successfully and then never appears; `.djvu` and `.lit`
+  do this on a Go 7. The message names the conversion to add. This is an error.
+* **ghosts** - index entries whose file is gone. The reader lists a book it
+  cannot open, and the delete API answers `success` while keeping the entry
+  (a no-op for a record with no file; verified against a real device). These
+  clear when the device rescans, i.e. after a reboot.
+
+Exit status is non-zero while an error remains, so it can gate a script.
 
 ## Re-running
 

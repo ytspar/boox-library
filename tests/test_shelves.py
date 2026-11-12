@@ -6,10 +6,13 @@ shelf must never be deleted implicitly.
 
 from __future__ import annotations
 
+from dataclasses import replace
+
 import pytest
 
 from booxlib.device import Device, WriteBlocked
 from booxlib.plan import build_plan
+from booxlib.scan import scan
 from booxlib.shelves import desired, shelf_path, sync_shelves
 from tests.test_plan import make_book
 
@@ -134,3 +137,46 @@ def test_djvu_uses_djvulibre_and_others_use_calibre():
 
     assert CONVERTERS[("djvu", "pdf")] is djvu_to_pdf
     assert CONVERTERS.get(("lit", "epub"), ebook_convert) is ebook_convert
+
+
+def test_device_shelf_suffixes_are_ignored(fake_boox, config):
+    """Devices disambiguate duplicates silently; the suffix is not the name."""
+    state = fake_boox.state
+    state.shelves["shelf-1"] = {"name": "History-1-1", "parent": None}
+
+    device = Device(host=fake_boox.host, allow_write=False)
+
+    assert device.shelves() == {("history",): "shelf-1"}
+    assert device.shelf_renames() == [("shelf-1", "History-1-1", "History")]
+
+
+def test_apply_repairs_suffixed_shelf_names(fake_boox, config, tmp_path):
+    (tmp_path / "A History of Empires.epub").write_bytes(b"x" * 3000)
+    cfg = replace(config, raw={**config.raw, "shelves": {"layout": "category"}})
+    plan = build_plan(scan(cfg), cfg)
+    target = plan.books[0].target_path(cfg.books_root)
+    fake_boox.state.files[target] = 3000
+    fake_boox.state.shelves["shelf-1"] = {"name": "History-1-1", "parent": None}
+    fake_boox.state.placement[target] = "shelf-1"
+
+    summary = sync_shelves(Device(host=fake_boox.host, allow_write=True), plan, cfg,
+                           apply=True)
+
+    assert summary.shelves_renamed == 1
+    assert fake_boox.state.shelves["shelf-1"]["name"] == "History"
+    assert fake_boox.state.placement[target] == "shelf-1"
+    assert summary.to_move == 0
+
+
+def test_create_rename_is_corrected_immediately(fake_boox, config):
+    fake_boox.state.suffix_duplicate_shelves = True
+    device = Device(host=fake_boox.host, allow_write=True)
+
+    first = device.ensure_shelf(("History",))
+    second = device.ensure_shelf(("History",))
+    device.ensure_shelf(("History", "Doe, Jane"))
+
+    assert first == second
+    names = sorted(s["name"] for s in fake_boox.state.shelves.values())
+    assert "History-1" not in names
+    assert names == ["Doe, Jane", "History"]

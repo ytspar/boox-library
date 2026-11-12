@@ -23,6 +23,7 @@ from .device import BooxError, Device, WriteBlocked
 from .manifest import Manifest
 from .metadata import READ_ONLY_META, can_write_meta
 from .produce import ConversionError, produce
+from .doctor import diagnose
 from .shelves import LAYOUTS, current_placement, sync_shelves
 from .names import fold
 from .plan import Plan, build_plan
@@ -483,6 +484,8 @@ def cmd_shelves(args: argparse.Namespace, config) -> int:
     print(f"  layout       : {summary.layout}")
     print(f"  shelves      : {summary.shelves_needed:,} ({summary.shelves_missing:,} missing)")
     print(f"  books        : {summary.books:,}")
+    if summary.shelves_renamed:
+        print(f"  names fixed  : {summary.shelves_renamed:,}")
     if args.apply:
         print(f"  shelves made : {summary.shelves_created:,}")
         print(f"  books moved  : {summary.moved:,}")
@@ -507,6 +510,47 @@ def cmd_shelves(args: argparse.Namespace, config) -> int:
         print("  done")
     print(f"  log: {report}")
     return 1 if summary.failed else 0
+
+
+def cmd_doctor(args: argparse.Namespace, config) -> int:
+    books = scan(config, cache_path=args.cache)
+    plan = build_plan(books, config, include_artifacts=args.include_artifacts)
+    host = args.host or config.device_host
+    device = Device(host=host, allow_write=bool(args.fix))
+
+    report = diagnose(device, config, plan)
+    print(f"  files on device : {report.disk_files:,}")
+    print(f"  in the library  : {report.indexed:,}")
+    print(f"  shelves         : {report.shelves:,}")
+
+    def show(rep) -> None:
+        if not rep.findings:
+            print("\n  no problems found")
+        for finding in rep.findings:
+            mark = "!" if finding.severity == "error" else "-"
+            print(f"\n  {mark} {finding.message}")
+            for path in finding.paths[: args.show]:
+                print(f"      {path}")
+            if len(finding.paths) > args.show:
+                print(f"      ... and {len(finding.paths) - args.show:,} more")
+
+    show(report)
+
+    if args.fix and (report.of_kind("unshelved") or report.of_kind("shelf-names")):
+        read_only = Device(host=host, allow_write=False)
+        summary = sync_shelves(device, plan, config, apply=True)
+        print(f"\n  moved {summary.moved:,} book(s) into shelves, "
+              f"renamed {summary.shelves_renamed:,} shelf(s)")
+        report = diagnose(read_only, config, plan)
+        show(report)
+
+    stamp = time.strftime("%Y%m%d-%H%M%S")
+    path = os.path.join(args.report_dir, f"doctor-{stamp}.json")
+    os.makedirs(args.report_dir, exist_ok=True)
+    with open(path, "w", encoding="utf-8") as handle:
+        json.dump(report.as_dict(args.show), handle, indent=2, ensure_ascii=False)
+    print(f"\n  log: {path}")
+    return 1 if report.errors else 0
 
 
 def cmd_verify(args: argparse.Namespace, config) -> int:
@@ -626,6 +670,15 @@ def build_parser() -> argparse.ArgumentParser:
     p_shelves.add_argument("--apply", action="store_true", help="actually create/move")
     p_shelves.add_argument("--include-artifacts", action="store_true")
     p_shelves.set_defaults(func=cmd_shelves)
+
+    p_doctor = sub.add_parser(
+        "doctor", help="check that the reader can see every file on the device"
+    )
+    p_doctor.add_argument("--fix", action="store_true", help="group misplaced books into shelves")
+    p_doctor.add_argument("--show", type=int, default=10, help="paths to print per finding")
+    p_doctor.add_argument("--include-artifacts", action="store_true")
+    p_doctor.add_argument("--cache", default=DEFAULT_CACHE, help="metadata cache path")
+    p_doctor.set_defaults(func=cmd_doctor)
 
     p_verify = sub.add_parser("verify", help="compare the device against the plan")
     p_verify.add_argument("--show", type=int, default=20)
