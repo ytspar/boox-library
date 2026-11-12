@@ -1,0 +1,10 @@
+__pycache__/
+*.pyc
+.pytest_cache/
+.venv/
+reports/*.json
+reports/*.csv
+reports/.cache/
+
+# personal config: copy config/library.example.yml to config/library.yml
+config/library.yml

@@ -1,0 +1,179 @@
+# boox-library configuration
+#
+# Everything the pipeline needs to turn a messy download folder into a
+# tidy, metadata-correct library on the Boox.  Edit freely; the tool is
+# idempotent, so re-running after a change is safe.
+
+sources:
+  root: ~/Downloads/books
+  # relative to root; matched on the first path component
+  exclude_paths:
+    - Web           # e.g. a code checkout next to your books
+    - .git
+
+device:
+  # find this in Settings -> Transfer -> BOOX Drop on the device
+  host: http://192.168.1.50:8085
+  books_root: /storage/emulated/0/Books
+  # keep this many bytes free after a sync
+  min_free_bytes: 500000000
+
+naming:
+  # "sort" -> "Doe, Jane"     (groups by surname; recommended)
+  # "natural" -> "Jane Doe"
+  author_style: sort
+  author_folder_style: sort
+  max_filename_len: 140
+
+formats:
+  # what counts as an ebook in the source tree
+  extensions:
+    epub, mobi, azw, azw3, pdf, djvu, fb2, lit, txt, cbz, cbr, chm, pdb, doc, docx, rtf, odt
+  # when the same book exists in several formats, keep the best one
+  preference:
+    epub: 100
+    azw3: 90
+    mobi: 80
+    azw: 70
+    fb2: 60
+    pdf: 50
+    djvu: 40
+    lit: 30
+    docx: 25
+    doc: 24
+    rtf: 20
+    odt: 19
+    txt: 10
+    cbz: 5
+    cbr: 4
+  # image-heavy books read better as PDF even when an EPUB exists
+  prefer_pdf_for_categories:
+    Cooking & Food: true
+    Art & Design: true
+  # EPUBs under this many bytes are usually broken link-dumps; prefer PDF/other
+  tiny_epub_bytes: 80000
+  # The BOOX index ignores these formats entirely, so convert on the way out.
+  # .djvu books uploaded as-is never appear in the reader.
+  convert:
+    djvu: pdf
+
+# ---------------------------------------------------------------------------
+# Categories.  First match wins, so put specific ones before general ones.
+# `keywords` are matched case-insensitively against title + embedded tags +
+# series.  `authors` match the whole author string (case-insensitive).
+# ---------------------------------------------------------------------------
+categories:
+  - name: Southeast Asia
+    keywords: [thailand, thai, siam, siamese, burma, myanmar, laos, lao, vietnam, viet nam,
+               khmer, cambodia, indochina, bangkok, ayutthaya, lan na, lanna, mekong,
+               malay, malaysia, indonesia, philippines, singapore, javanese, rama]
+  - name: Judaism & Israel
+    keywords: [jewish, jewry, judaism, zionism, zionist, israel, israeli, palestin, holocaust,
+               talmud, torah, hebrew, synagogue, rabbi, rabbinic, shtetl, diaspora, mossad,
+               antisemit, anti-judaism, kabbalah, hasid]
+  - name: Anthropology
+    keywords: [anthropolog, ethnographic, ethnograph, kinship, hunter-gatherer, tribal, tribe,
+               ritual, yanomamo, headhunting, totemism, primitive, savages, cannibals,
+               cultural evolution, incest, exogamy, primate, hominid, archaeology]
+  - name: Technology & Computing
+    keywords: [software, programming, python, javascript, ruby, rails, computer, computing,
+               internet, startup, silicon valley, algorithm, database, linux, unix, api,
+               developer, git, svelte, deep learning, machine learning, ai, artificial intelligence,
+               cryptography, stuxnet, crypto, defi, bitcoin, blockchain, web scraping, nginx,
+               product, ux, user friendly, design, iphone, macintosh, oracle, reddit, twitter,
+               google, amazon, doordash, uber, y combinator]
+  - name: Business & Economics
+    keywords: [business, econom, management, market, capital, capitalism, entrepreneur, startup,
+               money, finance, invest, trading, goldratt, lean, strategy, leadership, sales,
+               marketing, product positioning, pricing, monopoly, schumpeter, keynes, friedman,
+               supply chain, sourcing, ikea, mba, ceo, coaching, habit, productivity at work,
+               billion, wework, zappos, costco, trader joe, in-n-out, starbucks]
+  - name: Psychology & Self-Development
+    keywords: [psycholog, anxiety, depression, trauma, therapy, mind, cognitive, behavior,
+               habit, procrastination, motivation, self-esteem, confidence, optimis, happiness,
+               meditation, mindfulness, emotion, personality, introvert, dopamine, attention,
+               trauma, adhd, autism, growth, purpose, stoic, self-help, self help, choose]
+  - name: Health & Fitness
+    keywords: [running, marathon, strength, barbell, lifting, weight training, fitness, workout,
+               training, climbing, alpinism, athlete, nutrition, diet, body, sleep, migraine,
+               metabolic, health, yoga, injury, stretching, endurance]
+  - name: Cooking & Food
+    keywords: [cook, cooking, recipe, food, cuisine, kitchen, chef, baking, bread, cocktail,
+               cocktail codex, salt fat acid heat, food lab, restaurant, wine, coffee, fermentation,
+               knife, flavor, gastronomy]
+  - name: History
+    keywords: [history, historic, historian, century, empire, dynasty, war, wars, revolution,
+               medieval, ancient, roman, napoleon, genocide, colonialism, colonial, empire,
+               kingdom, civilisation, civilization, crusade, nation, nationalism, chronicle,
+               biography, autobiography, memoir, the great war, wwii, ww2, cold war, ottoman,
+               byzantine, soviet, russia, china, japan, korea, vietnam war, midway, gulag,
+               dmz, pyongyang, north korea]
+  - name: Politics & Society
+    keywords: [politics, political, democracy, society, social, state, government, law, legal,
+               justice, immigration, race, racism, class, inequality, welfare, identity politics,
+               woke, civil rights, authoritarian, fascism, anarchism, anarchist, liberal,
+               liberalism, conservat, libertarian, populism, nationalism, policy, geopolitics,
+               media, journalism, propaganda, disinformation, corruption, oligarch, putin,
+               britain, europe, immigration, genocide]
+  - name: Religion & Philosophy
+    keywords: [philosophy, philosoph, ethics, moral, metaphysics, logic, stoic, epictetus,
+               nietzsche, aristotle, plato, socrates, confucius, tao, dao, zen, buddhism,
+               buddhist, christian, christianity, catholic, islam, muslim, quran, sufism,
+               bhagavad, gita, religion, theology, spirituality, ram dass, ecce homo,
+               five rings, musashi]
+  - name: Art & Design
+    keywords: [art, design, typograph, rams, phaidon, painting, architecture, aesthetics,
+               graphic, illustration, photography, colour, color theory, poster, cinema,
+               film, tarkovsky, sculpting in time, comics, graphic novel, drawn and quarterly]
+  - name: Language & Writing
+    keywords: [writing, style, grammar, strunk, zinsser, on writing well, rhetoric, prose,
+               composition, linguistics, language, transla, swahili, tai languages, tonal,
+               dictionary, thesaurus, etymology, semantics, storytelling, novelist, mfa]
+  - name: Science & Nature
+    keywords: [science, physics, biology, evolution, ecology, nature, animal, climate, universe,
+               cosmology, chemistry, mathematics, maths, geometry, neuroscience, brain, genome,
+               bee, insects, ornitholog, botany, astronomy, relativity, quantum, emergent,
+               complexity, zoologist, galaxy, space, gravity]
+  - name: Travel & Places
+    keywords: [travel, journey, abroad, tokyo, japan, kyoto, china, india, russia, siberia,
+               central asia, sovietistan, kazakhstan, uzbekistan, turkmenistan, mongolia,
+               lap of the world, lonely places, venice, paris, london, exile, migration,
+               not being governed, zomia, upland, pyongyang, moscow]
+  - name: Fiction
+    keywords: [novel, fiction, stories, short stories, trilogy, saga, mystery, crime, detective,
+               thriller, fantasy, science fiction, sci-fi, dystopia, romance, poetry, poems,
+               tales, fable, le carre, murakami, nabokov, dostoyevsky, tolstoy, waugh, ballard,
+               borges, calvino, chiang, wells, asimov, clarke, dick, le guin, banks, abercrombie,
+               sanderson, tolkien, hemingway, fitzgerald, austen, dickens, melville]
+  - name: Papers & Essays
+    keywords: [arxiv, working paper, discussion paper, preprint, dissertation, thesis,
+               journal article, lecture notes, essay, commentary, response to,
+               book review, draft, manuscript, proceedings]
+  - name: Magazines & Periodicals
+    keywords: [harpersmagazine, harper's magazine, harpers, the economist, new yorker,
+               the atlantic, wired, hackermonthly, magazine, periodical, issue,
+               national geographic, london review of books, nyrb]
+  - name: Reference
+    keywords: [dictionary, encyclopedia, handbook, guide, manual, quick start, literacy,
+               companion, atlas, almanac]
+
+fallback_category: Unsorted
+
+# ---------------------------------------------------------------------------
+# Explicit overrides.  Highest priority; use these to fix anything the rules
+# get wrong.  Keys are matched case-insensitively, substring, against the
+# author string or the title.
+# ---------------------------------------------------------------------------
+overrides:
+  # Highest priority.  Matched case-insensitively, as a substring, against the
+  # author string or the title.  Use these to fix anything the rules get wrong.
+  authors: {}
+    # "ursula k. le guin": Fiction
+    # "jane doe": History
+  titles: {}
+    # "the goal": Business & Economics
+
+# Source sub-directories that hint at a category.  Only a hint: a strong
+# keyword match still wins.
+directory_category: {}
+  # "Sci-Fi reading list": Fiction
