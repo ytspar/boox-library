@@ -15,7 +15,7 @@ import os
 import shutil
 import subprocess
 
-from .metadata import apply_meta
+from .metadata import apply_meta, calibre_bin
 
 log = logging.getLogger(__name__)
 
@@ -48,6 +48,19 @@ def djvu_to_pdf(src: str, dst: str) -> None:
         raise ConversionError(f"ddjvu failed: {output[:300]}")
 
 
+def ebook_convert(src: str, dst: str) -> None:
+    """Convert with Calibre's ``ebook-convert`` (lit, mobi, azw3, ...)."""
+    try:
+        exe = calibre_bin("ebook-convert")
+    except FileNotFoundError as exc:
+        raise ConversionError(str(exc))
+    code, output = _run([exe, src, dst])
+    if code != 0 or not os.path.exists(dst) or os.path.getsize(dst) == 0:
+        raise ConversionError(f"ebook-convert failed: {output[:300]}")
+
+
+# Calibre cannot read DjVu, so that one needs DjVuLibre; everything else goes
+# through ebook-convert.
 CONVERTERS = {("djvu", "pdf"): djvu_to_pdf}
 
 
@@ -65,9 +78,7 @@ def produce(
     os.makedirs(os.path.dirname(os.path.abspath(dest)) or ".", exist_ok=True)
 
     if book.convert_to:
-        convert = CONVERTERS.get((book.ext, book.convert_to))
-        if not convert:
-            raise ConversionError(f"no converter for .{book.ext} -> .{book.convert_to}")
+        convert = CONVERTERS.get((book.ext, book.convert_to), ebook_convert)
         convert(book.path, dest)
         ok, message = apply_meta(
             dest, title=title, authors=authors, year=year,

@@ -162,8 +162,19 @@ config maps source formats to what actually gets uploaded:
     djvu: pdf
 ```
 
-This needs DjVuLibre (`brew install djvulibre`, provides `ddjvu`). Converted
-books are named and indexed as PDFs like any other.
+This needs DjVuLibre (`brew install djvulibre`, provides `ddjvu`). Everything
+else converts through Calibre's `ebook-convert`:
+
+```yaml
+  convert:
+    djvu: pdf      # the reader cannot open DjVu at all
+    lit: epub      # .lit is never indexed, so it is invisible in the Library
+```
+
+The failure mode is quiet and easy to miss: a format the index skips uploads
+"successfully" and then simply never appears in the reader. `.djvu` and `.lit`
+both behave this way on a Go 7. Converted books are named and indexed like any
+other, so the usual `sync --apply --prune` flow replaces the originals.
 
 ## Bookshelves
 

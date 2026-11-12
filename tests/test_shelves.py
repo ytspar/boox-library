@@ -126,3 +126,11 @@ def test_category_author_layout_nests_shelves(tmp_path, config, fake_boox, empty
     assert summary.shelves_created == 4  # 2 categories + 2 authors
     parents = {s["parent"] for s in empty_state.shelves.values()}
     assert any(p is not None for p in parents), "author shelves should nest under categories"
+
+
+def test_djvu_uses_djvulibre_and_others_use_calibre():
+    """Calibre cannot read DjVu; everything else converts via ebook-convert."""
+    from booxlib.produce import CONVERTERS, djvu_to_pdf, ebook_convert
+
+    assert CONVERTERS[("djvu", "pdf")] is djvu_to_pdf
+    assert CONVERTERS.get(("lit", "epub"), ebook_convert) is ebook_convert

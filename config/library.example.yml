@@ -55,7 +55,8 @@ formats:
   # The BOOX index ignores these formats entirely, so convert on the way out.
   # .djvu books uploaded as-is never appear in the reader.
   convert:
-    djvu: pdf
+    djvu: pdf      # the reader cannot open DjVu at all; ddjvu converts these
+    lit: epub      # .lit is not indexed by the BOOX library, so it is invisible
 
 # ---------------------------------------------------------------------------
 # Categories.  First match wins, so put specific ones before general ones.
