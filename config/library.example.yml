@@ -158,6 +158,16 @@ categories:
                companion, atlas, almanac]
 
 fallback_category: Unsorted
+# ---------------------------------------------------------------------------
+# Virtual bookshelves.  These are the BOOX Library tab's own grouping: they
+# are stored on the device and are a *separate* layer from the folders under
+# Books/ (grouping a book into a shelf does not move or copy any file).
+#   layout: none | category | category-author | author
+# After new uploads, run `bin/booxlib shelves --apply` to group them.
+# ---------------------------------------------------------------------------
+shelves:
+  layout: category
+
 
 # ---------------------------------------------------------------------------
 # Explicit overrides.  Highest priority; use these to fix anything the rules

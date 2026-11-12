@@ -165,6 +165,39 @@ config maps source formats to what actually gets uploaded:
 This needs DjVuLibre (`brew install djvulibre`, provides `ddjvu`). Converted
 books are named and indexed as PDFs like any other.
 
+## Bookshelves
+
+The BOOX Library tab has its own grouping — *bookshelves* — which is separate
+from the folders under `Books/`. Both are useful, and neither replaces the
+other:
+
+* **Folders** are where the files live. They survive a rescan, are visible to
+  any app, and are what `sync` writes.
+* **Shelves** are virtual. Grouping a book into a shelf does **not** move or
+  copy the file — its `location` is unchanged. A book belongs to exactly one
+  shelf, so shelves are a single-parent tree.
+
+```bash
+bin/booxlib shelves                        # dry run
+bin/booxlib shelves --apply                # create shelves, group books
+bin/booxlib shelves --layout category-author --apply   # nested: category/author
+```
+
+Layouts: `category` (20 shelves), `category-author` (category, then author
+shelves — one level deeper, ~740 shelves), or `author`. Re-running is
+idempotent: only missing shelves are created and only misplaced books move.
+
+Newly uploaded books land unshelved at the library root, so the last step of a
+sync is:
+
+```bash
+bin/booxlib sync --apply --prune && bin/booxlib shelves --apply
+```
+
+Shelves are **never deleted automatically**. The device's delete semantics are
+not fully understood (a delete can remove an empty sibling shelf), and a stray
+empty shelf is harmless, so removal stays a manual, opt-in action.
+
 ## Re-running
 
 `sync` is incremental. It keeps a manifest (`reports/.cache/manifest.json`)

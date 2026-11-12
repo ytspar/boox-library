@@ -316,6 +316,131 @@ class Device:
         self.log.record("mkdir", parent=parent, name=name, path=path)
         return path
 
+    # ----------------------------------------------------------------- shelves
+    #
+    # A "bookshelf" (library) is a virtual, single-parent grouping stored on the
+    # device.  Moving a book into one does NOT move the file: ``location`` keeps
+    # pointing at the same path on disk.  A book lives in exactly one shelf.
+
+    def shelf_tree(self) -> list[dict[str, Any]]:
+        payload = self._json("GET", "/api/library/tree")
+        return payload.get("children") or []
+
+    def shelves(self) -> dict[tuple[str, ...], str]:
+        """Flatten the shelf tree to ``{path_tuple: idString}``.
+
+        Keys are casefolded because the device compares names that way.
+        """
+        out: dict[tuple[str, ...], str] = {}
+
+        def walk(nodes: Sequence[dict[str, Any]], prefix: tuple[str, ...]) -> None:
+            for node in nodes:
+                lib = node.get("library") or {}
+                name = lib.get("name")
+                if not name:
+                    continue
+                path = prefix + (name,)
+                out[tuple(p.casefold() for p in path)] = lib.get("idString", "")
+                walk(node.get("children") or [], path)
+
+        walk(self.shelf_tree(), ())
+        return out
+
+    def shelf_books(self, shelf_id: str | None, *, page: int = 500) -> list[dict[str, Any]]:
+        """Books directly in a shelf (``None`` = the unshelved root)."""
+        out: list[dict[str, Any]] = []
+        offset = 0
+        while True:
+            args = {
+                "limit": page,
+                "offset": offset,
+                "sortBy": "CreationTime",
+                "order": "Desc",
+                "libraryUniqueId": shelf_id,
+            }
+            payload = self._json(
+                "GET", "/api/library", params={"args": json.dumps(args)}
+            )
+            batch = payload.get("visibleBookList") or []
+            out.extend(batch)
+            offset += len(batch)
+            if len(batch) < page or offset >= int(payload.get("bookCount") or 0):
+                return out
+
+    def create_shelf(self, parent_id: str | None, name: str) -> str:
+        """Create a shelf under *parent_id* (``None`` = top level)."""
+        self._require_write("create a bookshelf")
+        try:
+            payload = self._json(
+                "POST", "/api/library", json={"parent": parent_id, "name": name}
+            )
+        except AlreadyExists:
+            # the device reports a duplicate name with 417
+            self.log.record("shelf-exists", parent=parent_id, name=name)
+            return self.ensure_shelf((name,))
+        shelf_id = (payload.get("data") or {}).get("idString", "")
+        self.log.record("create-shelf", parent=parent_id, name=name, id=shelf_id)
+        return shelf_id
+
+    def ensure_shelf(self, path: Sequence[str]) -> str:
+        """Create ``path`` (a tuple of shelf names) if absent; return its id."""
+        existing = self.shelves()
+        parent_id: str | None = None
+        for depth in range(len(path)):
+            key = tuple(p.casefold() for p in path[: depth + 1])
+            if key in existing:
+                parent_id = existing[key]
+                continue
+            payload = self._json(
+                "POST", "/api/library", json={"parent": parent_id, "name": path[depth]}
+            )
+            parent_id = (payload.get("data") or {}).get("idString", "")
+            self.log.record(
+                "create-shelf", parent=path[:depth], name=path[depth], id=parent_id
+            )
+            existing = self.shelves()
+        if parent_id is None:
+            raise BooxError(f"could not resolve shelf {path!r}")
+        return parent_id
+
+    def move_to_shelf(
+        self,
+        paths: Sequence[str],
+        shelf_id: str | None,
+        shelf_name: str,
+        *,
+        current_parent: str | None = None,
+        force: bool = False,
+    ) -> None:
+        """Group books into a shelf, without moving any file on disk."""
+        self._require_write("move books to a bookshelf")
+        payload = {
+            "library": {"name": shelf_name, "idString": shelf_id},
+            "force": force,
+            "map": {
+                "selectedMap": {
+                    current_parent: {
+                        "count": 0,
+                        "selectedAllMode": False,
+                        "selectedList": list(paths),
+                    }
+                }
+            },
+        }
+        self._json("POST", "/api/library/move", json=payload)
+        self.log.record(
+            "move-to-shelf",
+            count=len(paths),
+            shelf=shelf_name,
+            from_shelf=current_parent,
+        )
+
+    def delete_shelf(self, shelf_id: str) -> None:
+        """Delete an empty shelf.  Never called implicitly - see docs."""
+        self._require_write("delete a bookshelf")
+        self._json("POST", "/api/library/delete", json={"args": shelf_id})
+        self.log.record("delete-shelf", id=shelf_id)
+
     def create_dir(self, parent: str, name: str) -> str:
         """Create ``parent/name``.  Idempotent: returns existing path if present."""
         self._require_write("create directory")

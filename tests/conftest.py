@@ -10,14 +10,15 @@ from tests.fake_boox import FakeBoox, FakeState  # noqa: E402
 
 
 @pytest.fixture
-def fake_boox():
-    with FakeBoox() as server:
-        yield server
+def empty_state():
+    return FakeState()
 
 
 @pytest.fixture
-def empty_state():
-    return FakeState()
+def fake_boox(empty_state):
+    """A fake device backed by ``empty_state``, so tests can inspect its state."""
+    with FakeBoox(empty_state) as server:
+        yield server
 
 
 @pytest.fixture

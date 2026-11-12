@@ -38,6 +38,12 @@ class Config:
         return (self.raw.get("device") or {}).get("host", "http://192.168.1.50:8085")
 
     @property
+    def shelves_layout(self) -> str:
+        """'none' | 'category' | 'category-author' | 'author'."""
+        raw = self.raw.get("shelves") or {}
+        return str(raw.get("layout", "none")).lower()
+
+    @property
     def books_root(self) -> str:
         return (self.raw.get("device") or {}).get("books_root", "/storage/emulated/0/Books")
 

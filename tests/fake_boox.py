@@ -22,6 +22,10 @@ class FakeState:
     books_root: str = "/storage/emulated/0/Books"
     files: dict[str, int] = field(default_factory=dict)  # path -> size
     dirs: set[str] = field(default_factory=set)
+    # virtual bookshelves: idString -> {"name": str, "parent": str | None}
+    shelves: dict[str, dict] = field(default_factory=dict)
+    # book path -> shelf idString (absent or None == unshelved at the root)
+    placement: dict[str, str | None] = field(default_factory=dict)
     notes: int = 0
     requests: list[tuple[str, str]] = field(default_factory=list)
 
@@ -169,9 +173,37 @@ class _Handler(BaseHTTPRequestHandler):
                 {"code": 0, "successful": True,
                  "data": {"count": self.state.notes, "list": [{}] * self.state.notes}}
             )
+        elif path == "/api/library/tree":
+            def node(sid):
+                return {
+                    "bookCount": sum(1 for v in self.state.placement.values() if v == sid),
+                    "library": {"_id": sid, "idString": sid,
+                                "name": self.state.shelves[sid]["name"]},
+                    "children": [
+                        node(c) for c, s in self.state.shelves.items()
+                        if s["parent"] == sid
+                    ],
+                }
+            self._send({
+                "bookCount": 0,
+                "children": [node(sid) for sid, s in self.state.shelves.items()
+                             if s["parent"] is None],
+            })
         elif path == "/api/library":
-            self._send({"bookCount": len(self.state.files), "libraryCount": 0,
-                        "visibleBookList": []})
+            args = json.loads((query.get("args") or ["{}"])[0])
+            uid = args.get("libraryUniqueId")
+            # a book is in the library once it exists on disk; placement only
+            # records which shelf it was grouped into
+            known = set(self.state.files) | set(self.state.placement)
+            books = sorted(p for p in known if self.state.placement.get(p) == uid)
+            self._send({
+                "bookCount": len(books), "libraryCount": len(self.state.shelves),
+                "visibleBookList": [
+                    {"metadata": {"location": p, "idString": p,
+                                  "title": p.rsplit("/", 1)[-1], "size": self.state.files[p]}}
+                    for p in books
+                ],
+            })
         elif path == "/api/storage/sdcard":
             self._send([])
         else:
@@ -202,6 +234,38 @@ class _Handler(BaseHTTPRequestHandler):
             for p in selected:
                 self.state.files.pop(p, None)
             self._ok(message="success")
+        elif path == "/api/library":
+            body = self._body()
+            parent = body.get("parent")
+            name = body.get("name", "")
+            for sid, s in self.state.shelves.items():
+                if s["parent"] == parent and s["name"].casefold() == name.casefold():
+                    self._send({"code": -1, "successful": False,
+                                "message": "exist same name bookshelf"}, 417)
+                    return
+            sid = f"shelf-{len(self.state.shelves) + 1}"
+            self.state.shelves[sid] = {"name": name, "parent": parent}
+            self._send({"code": 0, "successful": True,
+                        "data": {"idString": sid, "name": name}})
+        elif path == "/api/library/move":
+            body = self._body()
+            dest = (body.get("library") or {}).get("idString")
+            moved = 0
+            for _parent, group in (body.get("map", {}).get("selectedMap") or {}).items():
+                for book in group.get("selectedList", []):
+                    self.state.placement[book] = dest
+                    moved += 1
+            self._send({"code": 0, "successful": True, "message": "success"})
+        elif path == "/api/library/delete":
+            body = self._body()
+            sid = body.get("args")
+            if isinstance(sid, dict):
+                sid = sid.get("idString")
+            self.state.shelves.pop(sid, None)
+            for book, placed in list(self.state.placement.items()):
+                if placed == sid:
+                    self.state.placement[book] = None
+            self._send({"code": 0, "successful": True, "message": "success"})
         elif path == "/api/storage/directory/delete":
             body = self._body()
             for group in body.get("selectedMap", {}).values():

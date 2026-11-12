@@ -23,6 +23,7 @@ from .device import BooxError, Device, WriteBlocked
 from .manifest import Manifest
 from .metadata import READ_ONLY_META, can_write_meta
 from .produce import ConversionError, produce
+from .shelves import LAYOUTS, current_placement, sync_shelves
 from .names import fold
 from .plan import Plan, build_plan
 from .scan import scan
@@ -465,6 +466,49 @@ def cmd_wipe(args: argparse.Namespace, config) -> int:
     return 0
 
 
+def cmd_shelves(args: argparse.Namespace, config) -> int:
+    """Group books into virtual bookshelves (the Library tab's own layers)."""
+    layout = args.layout or config.shelves_layout
+    if layout == "none":
+        print("  shelves are disabled (set shelves.layout in the config,")
+        print("  or pass --layout category|category-author|author)")
+        return 0
+
+    books = scan(config, cache_path=args.cache)
+    plan = build_plan(books, config, include_artifacts=args.include_artifacts)
+    device = Device(host=args.host or config.device_host, allow_write=bool(args.apply))
+
+    summary = sync_shelves(device, plan, config, apply=args.apply, layout=layout)
+
+    print(f"  layout       : {summary.layout}")
+    print(f"  shelves      : {summary.shelves_needed:,} ({summary.shelves_missing:,} missing)")
+    print(f"  books        : {summary.books:,}")
+    if args.apply:
+        print(f"  shelves made : {summary.shelves_created:,}")
+        print(f"  books moved  : {summary.moved:,}")
+    else:
+        print(f"  already right: {summary.already_right:,}")
+        print(f"  to move      : {summary.to_move:,}")
+    if summary.failed:
+        print(f"  failed       : {summary.failed:,}")
+    for path in summary.missing_shelves:
+        print(f"    new shelf: {'/'.join(path)}")
+
+    report = os.path.join(args.report_dir, f"shelves-{time.strftime('%Y%m%d-%H%M%S')}.json")
+    os.makedirs(args.report_dir, exist_ok=True)
+    with open(report, "w") as fh:
+        json.dump(summary.as_dict(), fh, indent=2)
+    device.log.dump(report.replace(".json", "-actions.json"))
+
+    print()
+    if not args.apply:
+        print("DRY RUN - nothing will be changed. Pass --apply to execute.")
+    else:
+        print("  done")
+    print(f"  log: {report}")
+    return 1 if summary.failed else 0
+
+
 def cmd_verify(args: argparse.Namespace, config) -> int:
     books = scan(config, cache_path=args.cache)
     plan = build_plan(books, config, include_artifacts=args.include_artifacts)
@@ -571,6 +615,17 @@ def build_parser() -> argparse.ArgumentParser:
     p_wipe.add_argument("--force", action="store_true", help="wipe even if notes exist")
     p_wipe.add_argument("--show", type=int, default=10)
     p_wipe.set_defaults(func=cmd_wipe)
+
+    p_shelves = sub.add_parser(
+        "shelves", help="group books into device bookshelves (virtual, file paths unchanged)"
+    )
+    p_shelves.add_argument(
+        "--layout", choices=list(LAYOUTS),
+        help="shelf shape: category, category-author, or author (default: config)",
+    )
+    p_shelves.add_argument("--apply", action="store_true", help="actually create/move")
+    p_shelves.add_argument("--include-artifacts", action="store_true")
+    p_shelves.set_defaults(func=cmd_shelves)
 
     p_verify = sub.add_parser("verify", help="compare the device against the plan")
     p_verify.add_argument("--show", type=int, default=20)
