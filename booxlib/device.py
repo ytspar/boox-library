@@ -572,6 +572,21 @@ class Device:
         self._json("POST", "/api/storage/batDelete", json=body)
         self.log.record("delete_files", paths=list(paths))
 
+    def delete_index_record(self, path: str) -> None:
+        """Remove one library-index entry (the reader's own delete call).
+
+        The route is ``DELETE /api/storage/delete`` with ``args`` as a query
+        string holding the bare path, which is what the web UI's axios call
+        produces; a JSON body (``{"args": {"idString": path}}``) is accepted
+        with ``success`` but does nothing. When a file still exists at the
+        path this deletes the file *and* its record - and the match ignores
+        case and Unicode normalization, so callers must only use it for paths
+        confirmed absent from disk under those rules too.
+        """
+        self._require_write("delete index record")
+        self._json("DELETE", "/api/storage/delete", params={"args": path})
+        self.log.record("delete_index_record", path=path)
+
     def delete_dir(self, path: str) -> None:
         self._require_write("delete directory")
         parent = path.rsplit("/", 1)[0]

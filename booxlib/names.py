@@ -25,9 +25,32 @@ _WS = re.compile(r"\s+")
 _CONTROL = re.compile(r"[\x00-\x08\x09\x0a-\x1f\x7f\u200b-\u200f\ufeff]")
 
 
+#: how mojibake looks: a UTF-8 byte or two read through a single-byte codec
+_MOJIBAKE = re.compile(r"[\u00c2\u00c3\u00c4\u00c5\u0102\u0139\u00e2\u20ac\u00d0\u00d1]")
+
+
+def repair_mojibake(text: str) -> str:
+    """Undo the classic é -> 'Ã©' -> 'Ă©' damage found in shipped metadata.
+
+    A string is only rewritten when encoding it back through a single-byte
+    codec yields valid UTF-8, so genuine text that happens to contain these
+    characters ('SÃO PAULO') is left alone.
+    """
+    if not text or not _MOJIBAKE.search(text):
+        return text
+    for codec in ("cp1252", "latin-1", "cp1250", "cp1251", "mac_roman"):
+        try:
+            fixed = text.encode(codec).decode("utf-8")
+        except (UnicodeEncodeError, UnicodeDecodeError):
+            continue
+        if fixed != text and "\ufffd" not in fixed:
+            return fixed
+    return text
+
+
 def clean_text(text: str) -> str:
-    """Remove control characters and stray zero-width marks."""
-    return _CONTROL.sub(" ", text or "")
+    """Repair mojibake, then remove control characters and zero-width marks."""
+    return _CONTROL.sub(" ", repair_mojibake(text or ""))
 
 #: fold plain-ASCII lookalikes that NFKD does not decompose
 _FOLD_EXTRA = str.maketrans(

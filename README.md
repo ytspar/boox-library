@@ -231,12 +231,23 @@ It flags two failure modes that are otherwise silent:
 * **invisible files** - on the device but absent from the index. A format the
   index refuses uploads successfully and then never appears; `.djvu` and `.lit`
   do this on a Go 7. The message names the conversion to add. This is an error.
-* **ghosts** - index entries whose file is gone. The reader lists a book it
-  cannot open, and the delete API answers `success` while keeping the entry
-  (a no-op for a record with no file; verified against a real device). These
-  clear when the device rescans, i.e. after a reboot.
+* **ghosts** - index entries whose file is gone, which the reader shows as
+  cards that cannot be opened. `--fix` drops them.
 
 Exit status is non-zero while an error remains, so it can gate a script.
+
+Two things about ghost removal are worth knowing, because getting them wrong
+costs real books:
+
+* the route is `DELETE /api/storage/delete?args=<path>` - `args` as a *query
+  parameter* holding the bare path. A JSON body (`{"args": {...}}`) answers
+  `{"code":0,"message":"success"}` and does nothing at all, which makes a
+  broken payload look like a fixed device.
+* the same call deletes the file when one exists at that path, and the device
+  matches case- *and* normalization-insensitively: `Carre, John Le/...` will
+  happily delete `Carré, John le/...`. So ghost detection compares folded
+  paths (`booxlib.names.fold`) and skips any record that could be pointing at
+  a real file. `verify` and `doctor` both fold for this reason.
 
 ## Re-running
 

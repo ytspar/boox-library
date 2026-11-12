@@ -2,7 +2,7 @@
 
 from dataclasses import replace
 
-from booxlib.doctor import diagnose
+from booxlib.doctor import clear_ghosts, diagnose
 from booxlib.device import Device
 from booxlib.plan import build_plan
 from booxlib.scan import scan
@@ -116,3 +116,32 @@ def test_suffixed_shelf_names_are_reported_and_fixed(fake_boox, config, tmp_path
 
     assert fake_boox.state.shelves["shelf-1"]["name"] == "History"
     assert diagnose(_device(fake_boox, cfg), cfg, plan).findings == []
+
+
+def test_ghost_can_be_dropped_when_no_file_exists(fake_boox, config):
+    state = fake_boox.state
+    ghost = "/storage/emulated/0/Books/History/gone.djvu"
+    state.placement[ghost] = None
+    report = diagnose(_device(fake_boox, config), config)
+
+    cleared = clear_ghosts(_device(fake_boox, config, write=True), config, report)
+
+    assert cleared == 1
+    assert ghost not in fake_boox.state.placement
+
+
+def test_a_record_covering_a_real_file_is_never_deleted(fake_boox, config):
+    """The device filesystem is case-insensitive: an old record whose path
+    differs from the real file only by case must not be treated as a ghost."""
+    state = fake_boox.state
+    real = "/storage/emulated/0/Books/Fiction/Carré, John le/book.epub"
+    stale = "/storage/emulated/0/Books/Fiction/Carre, John Le/book.epub"
+    state.files[real] = 3000
+    state.placement[stale] = None  # record kept by the index, file renamed
+
+    report = diagnose(_device(fake_boox, config), config)
+    cleared = clear_ghosts(_device(fake_boox, config, write=True), config, report)
+
+    assert cleared == 0
+    assert real in fake_boox.state.files
+    assert state.mutations == []

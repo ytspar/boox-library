@@ -19,6 +19,7 @@ from collections import defaultdict
 from dataclasses import dataclass, field
 
 from .config import Config
+from .names import fold
 from .device import Device
 from .plan import Plan
 from .shelves import _fold, current_placement, desired
@@ -70,6 +71,30 @@ class Report:
         }
 
 
+def clear_ghosts(device: Device, config: Config, report: Report) -> int:
+    """Drop index entries whose file is gone; returns how many were removed.
+
+    ``DELETE /api/storage/delete`` deletes *both* the file and its record when
+    a file is found at the path, so this re-checks the disk listing first and
+    compares case-insensitively: an old record can differ from the real file
+    only by case (`Carre, John Le` vs `Carré, John le`), and deleting such a
+    record destroys the book. Records are only removed when no file matches.
+    """
+    disk_cf = {
+        fold(e.path)
+        for e in device.list_dir(config.books_root, recursive=True)
+        if not e.is_dir
+    }
+    removed = 0
+    for finding in report.of_kind("ghost"):
+        for path in finding.paths:
+            if fold(path) in disk_cf:
+                continue  # a real book hides behind this record: leave it alone
+            device.delete_index_record(path)
+            removed += 1
+    return removed
+
+
 def _suggest(ext: str) -> str:
     target = SUGGESTED_CONVERSIONS.get(ext)
     if target:
@@ -80,9 +105,13 @@ def _suggest(ext: str) -> str:
 def diagnose(device: Device, config: Config, plan: Plan | None = None) -> Report:
     """Compare the device filesystem against its library index (read-only)."""
     disk = [e for e in device.list_dir(config.books_root, recursive=True) if not e.is_dir]
-    disk_cf = {e.path.casefold(): e.path for e in disk}
+    # Compare folded, not raw: the device resolves paths case- and
+    # normalization-insensitively ('Carré' in NFC matches 'Carré' in NFD and
+    # 'CARRE'), so a raw comparison reports files that are right there as
+    # missing - and acting on that deletes real books.
+    disk_cf = {fold(e.path) for e in disk}
     placement = current_placement(device)
-    index_cf = {p.casefold(): p for p in placement}
+    index_cf = {fold(p) for p in placement}
 
     report = Report(
         disk_files=len(disk),
@@ -91,7 +120,7 @@ def diagnose(device: Device, config: Config, plan: Plan | None = None) -> Report
     )
 
     # on disk but the reader cannot see it: the .lit/.djvu class of bug
-    invisible = [e.path for e in disk if e.path.casefold() not in index_cf]
+    invisible = [e.path for e in disk if fold(e.path) not in index_cf]
     if invisible:
         by_ext: dict[str, list[str]] = defaultdict(list)
         for path in invisible:
@@ -108,16 +137,15 @@ def diagnose(device: Device, config: Config, plan: Plan | None = None) -> Report
             )
 
     # in the index but the file is gone: unopenable ghost cards
-    ghosts = [p for p in placement if p.casefold() not in disk_cf]
+    ghosts = [p for p in placement if fold(p) not in disk_cf]
     if ghosts:
         report.findings.append(
             Finding(
                 "ghost",
                 "warning",
                 f"{len(ghosts)} library entr(y/ies) point at files that no longer "
-                "exist; the reader lists them but cannot open them, and the delete "
-                "API silently keeps them (a no-op on a record whose file is gone) - "
-                "they clear when the device rescans, i.e. after a reboot",
+                "exist - the reader lists them as cards that cannot be opened; run "
+                "`booxlib doctor --fix` to drop them",
                 ghosts,
             )
         )

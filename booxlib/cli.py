@@ -23,7 +23,7 @@ from .device import BooxError, Device, WriteBlocked
 from .manifest import Manifest
 from .metadata import READ_ONLY_META, can_write_meta
 from .produce import ConversionError, produce
-from .doctor import diagnose
+from .doctor import clear_ghosts, diagnose
 from .shelves import LAYOUTS, current_placement, sync_shelves
 from .names import fold
 from .plan import Plan, build_plan
@@ -536,12 +536,17 @@ def cmd_doctor(args: argparse.Namespace, config) -> int:
 
     show(report)
 
+    if args.fix and report.of_kind("ghost"):
+        cleared = clear_ghosts(device, config, report)
+        print(f"\n  dropped {cleared:,} library entr(y/ies) with no file behind them")
+
     if args.fix and (report.of_kind("unshelved") or report.of_kind("shelf-names")):
-        read_only = Device(host=host, allow_write=False)
         summary = sync_shelves(device, plan, config, apply=True)
         print(f"\n  moved {summary.moved:,} book(s) into shelves, "
               f"renamed {summary.shelves_renamed:,} shelf(s)")
-        report = diagnose(read_only, config, plan)
+
+    if args.fix:
+        report = diagnose(Device(host=host, allow_write=False), config, plan)
         show(report)
 
     stamp = time.strftime("%Y%m%d-%H%M%S")

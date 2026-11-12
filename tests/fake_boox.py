@@ -316,6 +316,15 @@ class _Handler(BaseHTTPRequestHandler):
 
     def do_DELETE(self) -> None:
         self.state.record("DELETE", self.path)
+        parsed = urllib.parse.urlparse(self.path)
+        if parsed.path == "/api/storage/delete":
+            # mirrors the device: args is a QUERY parameter holding a bare path;
+            # it removes the file if one exists there, plus the index record
+            args = urllib.parse.parse_qs(parsed.query).get("args", [""])[0]
+            self.state.files.pop(args, None)
+            self.state.dirs.discard(args)
+            for known in [p for p in self.state.placement if p == args]:
+                self.state.placement.pop(known, None)
         self._ok()
 
 

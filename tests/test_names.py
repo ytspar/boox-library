@@ -162,3 +162,21 @@ def test_long_titles_cut_on_word_boundary():
     name = build_filename(["A B"], "word " * 40, "2000", "epub", max_len=60)
     assert len(name) <= 61
     assert not name[:-5].endswith("wor")
+
+
+def test_mojibake_is_repaired():
+    from booxlib.names import repair_mojibake
+
+    # 'é' as UTF-8 read back through cp1252, then the same again
+    assert repair_mojibake("John Le CarrÃ©") == "John Le Carré"
+    assert repair_mojibake("CarrĂ©, John Le") == "CarrĂ©, John Le".replace("Ă©", "é")
+    assert repair_mojibake("Gödel, Escher, Bach") == "Gödel, Escher, Bach"
+    assert repair_mojibake("Unsorted") == "Unsorted"
+
+
+def test_mojibake_repair_leaves_real_text_alone():
+    from booxlib.names import repair_mojibake
+
+    # a genuine 'Ã' cannot be decoded as UTF-8, so it must survive untouched
+    for text in ("SÃO PAULO", "Ão", "Português"):
+        assert repair_mojibake(text) == text
